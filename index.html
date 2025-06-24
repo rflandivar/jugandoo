@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Juego de Grafomotricidad</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Fredoka+One&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Fredoka One', cursive;
+            touch-action: none; /* Prevents scrolling on touch devices while drawing */
+        }
+        .text-stroke {
+            -webkit-text-stroke: 2px #4a5568; /* For Webkit browsers */
+            text-stroke: 2px #4a5568;
+        }
+        canvas {
+            cursor: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="%23f59e0b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a10 10 0 1 1-4.24 18.24"/><path d="M12 2v20"/><path d="M22 12H2"/></svg>') 16 16, auto;
+        }
+    </style>
+</head>
+<body class="bg-amber-100 flex items-center justify-center min-h-screen">
+    <div class="w-full max-w-2xl mx-auto p-4 md:p-6 bg-white rounded-3xl shadow-2xl border-4 border-amber-400">
+        
+        <header class="text-center mb-4">
+            <h1 class="text-3xl md:text-4xl font-bold text-amber-600 text-stroke">¡A DIBUJAR Y APRENDER!</h1>
+            <p class="text-gray-600 mt-1">Sigue las líneas punteadas para revelar el dibujo.</p>
+        </header>
+        
+        <div class="bg-gray-200 rounded-2xl overflow-hidden shadow-inner mb-4">
+            <canvas id="drawingCanvas"></canvas>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 items-center">
+            <div class="bg-sky-200 text-sky-800 p-4 rounded-2xl text-center">
+                <h2 class="text-xl font-bold">PUNTUACIÓN</h2>
+                <p id="score" class="text-4xl font-bold">0%</p>
+            </div>
+             <div id="message-box" class="bg-emerald-200 text-emerald-800 p-4 rounded-2xl text-center h-full flex items-center justify-center hidden">
+                <p id="message-text" class="text-xl font-bold"></p>
+            </div>
+        </div>
+
+        <div class="flex justify-center space-x-4 mt-6">
+            <button id="newGameBtn" class="bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-3 px-6 rounded-full shadow-lg transform hover:scale-105 transition-transform duration-200">
+                Nuevo Dibujo
+            </button>
+            <button id="clearBtn" class="bg-rose-500 hover:bg-rose-600 text-white font-bold py-3 px-6 rounded-full shadow-lg transform hover:scale-105 transition-transform duration-200">
+                Borrar Trazo
+            </button>
+        </div>
+
+    </div>
+
+    <script>
+        const canvas = document.getElementById('drawingCanvas');
+        const ctx = canvas.getContext('2d');
+        const newGameBtn = document.getElementById('newGameBtn');
+        const clearBtn = document.getElementById('clearBtn');
+        const scoreEl = document.getElementById('score');
+        const messageBox = document.getElementById('message-box');
+        const messageText = document.getElementById('message-text');
+
+        let isDrawing = false;
+        let targetPath = [];
+        let userPath = [];
+        let goodPoints = 0;
+        const TRACE_TOLERANCE = 15; // How close the user's line must be to the target line (in pixels)
+
+        // --- Figuras para trazar ---
+        // Cada figura es un array de polilíneas. Cada polilínea es un array de puntos {x, y}.
+        const figures = {
+            sun: [
+                // Circle
+                Array.from({ length: 100 }, (_, i) => {
+                    const angle = (i / 100) * 2 * Math.PI;
+                    return {
+                        x: 250 + 60 * Math.cos(angle),
+                        y: 150 + 60 * Math.sin(angle),
+                    };
+                }),
+                // Rays
+                ...Array.from({length: 8}, (_, i) => {
+                    const angle = (i / 8) * 2 * Math.PI;
+                    return [
+                        {x: 250 + 70 * Math.cos(angle), y: 150 + 70 * Math.sin(angle)},
+                        {x: 250 + 90 * Math.cos(angle), y: 150 + 90 * Math.sin(angle)},
+                    ];
+                })
+            ],
+            flower: [
+                // Stem
+                [{x: 250, y: 400}, {x: 250, y: 250}],
+                // Center
+                 Array.from({ length: 50 }, (_, i) => {
+                    const angle = (i / 50) * 2 * Math.PI;
+                    return {
+                        x: 250 + 30 * Math.cos(angle),
+                        y: 200 + 30 * Math.sin(angle),
+                    };
+                }),
+                // Petals
+                ...Array.from({length: 6}, (_, i) => {
+                    const angle = (i / 6) * 2 * Math.PI;
+                    return Array.from({length: 50}, (_, j) => {
+                       const petalAngle = (j / 50) * 2 * Math.PI;
+                       const r = 50 * Math.cos(2 * petalAngle); // Simple rhodonea curve for petal shape
+                       return {
+                           x: 250 + (35 + r) * Math.cos(angle) - r * Math.sin(angle),
+                           y: 200 + (35 + r) * Math.sin(angle) + r * Math.cos(angle)
+                       }
+                    });
+                })
+            ],
+            house: [
+                // Base
+                [{x: 150, y: 350}, {x: 350, y: 350}, {x: 350, y: 200}, {x: 150, y: 200}, {x: 150, y: 350}],
+                // Roof
+                [{x: 125, y: 200}, {x: 250, y: 120}, {x: 375, y: 200}],
+                 // Door
+                [{x: 220, y: 350}, {x: 220, y: 280}, {x: 280, y: 280}, {x: 280, y: 350}]
+            ]
+        };
+
+        // --- Funciones del Juego ---
+
+        function setupCanvas() {
+            const parent = canvas.parentElement;
+            const dpr = window.devicePixelRatio || 1;
+            const rect = parent.getBoundingClientRect();
+            canvas.width = rect.width * dpr;
+            canvas.height = (rect.width * 0.75) * dpr; // Maintain a 4:3 aspect ratio
+            canvas.style.width = `${rect.width}px`;
+            canvas.style.height = `${rect.width * 0.75}px`;
+            ctx.scale(dpr, dpr);
+            startNewGame();
+        }
+
+        function drawDottedPolyline(points) {
+            ctx.beginPath();
+            ctx.setLineDash([5, 10]); // Estilo de línea punteada
+            ctx.lineWidth = 3;
+            ctx.lineCap = 'round';
+            ctx.strokeStyle = '#cbd5e1'; // Gris claro
+            
+            ctx.moveTo(points[0].x, points[0].y);
+            for (let i = 1; i < points.length; i++) {
+                ctx.lineTo(points[i].x, points[i].y);
+            }
+            ctx.stroke();
+            ctx.setLineDash([]); // Reset line dash
+        }
+
+        function drawFigure(figure) {
+            figure.forEach(polyline => {
+                drawDottedPolyline(polyline);
+            });
+        }
+        
+        function startNewGame() {
+            clearCanvas();
+            userPath = [];
+            goodPoints = 0;
+            updateScore();
+            hideMessage();
+
+            const figureNames = Object.keys(figures);
+            const randomFigureName = figureNames[Math.floor(Math.random() * figureNames.length)];
+            const currentFigure = figures[randomFigureName];
+            
+            // Almacenar todos los puntos de la figura objetivo en un solo array
+            targetPath = currentFigure.flat();
+
+            drawFigure(currentFigure);
+        }
+
+        function clearCanvas() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+        }
+
+        function redraw() {
+            clearCanvas();
+            // Redibujar la figura punteada
+            const figurePoints = targetPath.reduce((acc, point, index) => {
+                 // Esto es una simplificación, idealmente necesitaríamos la estructura original
+                 // Para este caso, vamos a redibujar todo el path conocido
+                 return targetPath;
+            }, []);
+             
+             // Esto es una aproximación, ya que hemos perdido la estructura de polilíneas.
+             // Para un redibujado perfecto, necesitaríamos almacenar la figura actual.
+             // Por simplicidad, aquí solo redibujamos el trazo del usuario.
+             const figureKeys = Object.keys(figures);
+             const currentFigureKey = figureKeys.find(key => figures[key].flat().length === targetPath.length);
+             if (currentFigureKey) {
+                 drawFigure(figures[currentFigureKey]);
+             }
+
+
+            // Redibujar el trazo del usuario
+            ctx.beginPath();
+            ctx.strokeStyle = '#f59e0b'; // Naranja
+            ctx.lineWidth = 5;
+            ctx.lineJoin = 'round';
+            ctx.lineCap = 'round';
+            if (userPath.length > 0) {
+                ctx.moveTo(userPath[0].x, userPath[0].y);
+                for(let i = 1; i < userPath.length; i++) {
+                    ctx.lineTo(userPath[i].x, userPath[i].y);
+                }
+            }
+            ctx.stroke();
+        }
+
+        function getMousePos(evt) {
+            const rect = canvas.getBoundingClientRect();
+            const scaleX = canvas.width / (rect.width * window.devicePixelRatio);
+            const scaleY = canvas.height / (rect.height * window.devicePixelRatio);
+
+            const clientX = evt.touches ? evt.touches[0].clientX : evt.clientX;
+            const clientY = evt.touches ? evt.touches[0].clientY : evt.clientY;
+
+            return {
+                x: (clientX - rect.left) * scaleX,
+                y: (clientY - rect.top) * scaleY
+            };
+        }
+
+        function calculatePointScore(point) {
+            let minDistance = Infinity;
+            for (const targetPoint of targetPath) {
+                const distance = Math.hypot(point.x - targetPoint.x, point.y - targetPoint.y);
+                if (distance < minDistance) {
+                    minDistance = distance;
+                }
+            }
+            if (minDistance <= TRACE_TOLERANCE) {
+                goodPoints++;
+            }
+        }
+
+        function updateScore() {
+            const percentage = userPath.length > 0 ? Math.round((goodPoints / userPath.length) * 100) : 0;
+            scoreEl.textContent = `${percentage}%`;
+            
+            // Animación de puntuación
+            scoreEl.classList.add('transform', 'scale-125', 'transition-transform', 'duration-150');
+            setTimeout(() => {
+                scoreEl.classList.remove('transform', 'scale-125');
+            }, 150);
+
+            return percentage;
+        }
+        
+        function showMessage(percentage) {
+             let msg = "";
+             if (percentage > 90) {
+                 msg = "¡Excelente! ¡Eres un artista!";
+             } else if (percentage > 75) {
+                 msg = "¡Muy bien! ¡Sigue así!";
+             } else if (percentage > 50) {
+                 msg = "¡Buen intento! ¡Puedes mejorar!";
+             } else {
+                 msg = "¡Sigue practicando!";
+             }
+             messageText.textContent = msg;
+             messageBox.classList.remove('hidden');
+        }
+        
+        function hideMessage() {
+            messageBox.classList.add('hidden');
+        }
+
+        // --- Event Listeners ---
+        function onDrawStart(evt) {
+            evt.preventDefault();
+            isDrawing = true;
+            const pos = getMousePos(evt);
+            userPath.push(pos);
+            ctx.beginPath();
+            ctx.moveTo(pos.x, pos.y);
+            ctx.strokeStyle = '#f59e0b';
+            ctx.lineWidth = 5;
+            ctx.lineJoin = 'round';
+            ctx.lineCap = 'round';
+        }
+
+        function onDrawMove(evt) {
+            if (!isDrawing) return;
+            evt.preventDefault();
+            const pos = getMousePos(evt);
+            userPath.push(pos);
+            calculatePointScore(pos);
+            updateScore();
+            
+            ctx.lineTo(pos.x, pos.y);
+            ctx.stroke();
+            ctx.beginPath(); // Empieza un nuevo sub-path para trazos más suaves
+            ctx.moveTo(pos.x, pos.y);
+        }
+
+        function onDrawEnd(evt) {
+            if (!isDrawing) return;
+            evt.preventDefault();
+            isDrawing = false;
+            ctx.closePath();
+            const finalScore = updateScore();
+            showMessage(finalScore);
+        }
+
+        canvas.addEventListener('mousedown', onDrawStart);
+        canvas.addEventListener('mousemove', onDrawMove);
+        canvas.addEventListener('mouseup', onDrawEnd);
+        canvas.addEventListener('mouseout', onDrawEnd);
+
+        canvas.addEventListener('touchstart', onDrawStart);
+        canvas.addEventListener('touchmove', onDrawMove);
+        canvas.addEventListener('touchend', onDrawEnd);
+
+        newGameBtn.addEventListener('click', setupCanvas);
+        clearBtn.addEventListener('click', () => {
+             userPath = [];
+             goodPoints = 0;
+             updateScore();
+             hideMessage();
+             redraw();
+        });
+
+        window.addEventListener('resize', setupCanvas);
+        window.addEventListener('load', setupCanvas);
+
+    </script>
+</body>
+</html>
